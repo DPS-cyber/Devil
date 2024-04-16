@@ -310,7 +310,7 @@
 
             async function getWeatherInfo(location) {
                 const apiKey = '48ddfe8c9cf29f95b7d0e54d6e171008';
-                const response = await fetch(`http://api.openweathermap.org/data/2.5/weather?q=${location}&appid=${apiKey}`);
+                const response = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${location}&appid=${apiKey}`);
                 const data = await response.json();
 
                 const weatherDescription = data.weather[0].description;
@@ -418,11 +418,9 @@ function openWebsite(websiteName) {
                 weatherBox.style.display = 'block';
             }
         });
-    </script>
+    </script>  
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-            // Your JavaScript code here
-
             const madvais = {
                 greetings: ['hi', 'hello', 'hey'],
                 commands: {
