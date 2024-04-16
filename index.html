@@ -1,0 +1,482 @@
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Madvais - Voice Assistant</title>
+    <style>
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background: linear-gradient(90deg, #000000 , #FF0000);
+            font-family: 'Arial', sans-serif;
+        }
+
+        .container {
+            text-align: center;
+            color: #fff;
+        }
+
+        #startBtn,
+        #listenBtn {
+            background: linear-gradient(45deg, #000000 , #FF0000);
+            border: none;
+            color: #fff;
+            padding: 15px 30px;
+            font-size: 20px;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        #startBtn:hover,
+        #listenBtn:hover {
+            background: linear-gradient(45deg, #FF0000 , #000000);
+        }
+
+        #weatherBox {
+            display: none;
+            margin-top: 20px;
+  font-size: 16px;
+        }
+
+        #weatherInfo {
+            margin-top: 10px;
+  font-size: 16px;
+        }
+
+        #locationInput {
+            margin-top: 10px;
+            padding: 5px;
+            font-size: 16px;
+            border-radius: 20px;
+        }
+
+        #changeLocationBtn {
+            margin-top: 5px;
+            background: linear-gradient(45deg, #FF0000 , #000000);
+            border: none;
+            color: #fff;
+            padding: 8px 16px;
+            font-size: 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        #changeLocationBtn:hover {
+            background: linear-gradient(45deg, #000000 , #FF0000);
+        }
+
+#chat-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 300px;
+    height: 400px;
+    background-color: #f5f5f5;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+#chat-box {
+    height: 80%;
+    overflow-y: scroll;
+    padding: 10px;
+}
+
+#user-input {
+    width: calc(100% - 40px);
+    padding: 5px 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    margin: 10px;
+}
+
+#send-button {
+    width: calc(100% - 20px);
+    padding: 5px 10px;
+    border: none;
+    border-radius: 5px;
+    background-color:#000000;
+    color: #fff;
+    margin: -100px 10px; /* Adjusted margin here */
+    cursor: pointer;
+}
+
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>D.E.V.I.L-Personal Assistant</h1>
+        <p id="status">Offline</p>
+        <button id="startBtn" onclick="startAssistant()">Start Listening</button>
+        <div id="animationContainer" style="display: none;">
+            <button id="listenBtn" onclick="startListening()">Listen</button>
+        </div>
+        <div>
+            <input type="text" id="locationInput" placeholder="Enter Location" />
+            <button id="changeLocationBtn" onclick="changeLocation()">Change Location</button>
+        </div>
+        <div id="weatherBox">
+            <div id="weatherInfo"></div>
+        </div>
+    </div>
+  <div id="chat-container">
+        <div id="chat-box"></div>
+        <input type="text" id="user-input" placeholder="Ask a question or give a command...">
+    <button id="send-button" onclick="processInput()">Send</button>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const statusElement = document.getElementById('status');
+            const startBtn = document.getElementById('startBtn');
+            const listenBtn = document.getElementById('listenBtn');
+            const locationInput = document.getElementById('locationInput');
+            const changeLocationBtn = document.getElementById('changeLocationBtn');
+            const weatherBox = document.getElementById('weatherBox');
+            const weatherInfoElement = document.getElementById('weatherInfo');
+            let recognition, model;
+
+            startBtn.addEventListener('click', () => {
+                startBtn.style.display = 'none';
+                document.getElementById('animationContainer').style.display = 'block';
+                startAssistant();
+            });
+
+            listenBtn.addEventListener('click', () => {
+                startListening();
+            });
+
+            // Check if location is stored in localStorage
+            const storedLocation = localStorage.getItem('weatherLocation');
+            if (storedLocation) {
+                locationInput.value = storedLocation;
+            }
+
+            changeLocationBtn.addEventListener('click', () => {
+                const newLocation = locationInput.value.trim();
+                if (newLocation !== '') {
+                    localStorage.setItem('weatherLocation', newLocation);
+                    getWeatherInfo(newLocation)
+                        .then(weatherInfo => {
+                            displayWeather(weatherInfo);
+                            const speech = new SpeechSynthesisUtterance();
+                            speech.text = `This is the weather Report for ${newLocation}. ${weatherInfo.description}, Temperature: ${weatherInfo.temperature} degrees Celsius, Humidity: ${weatherInfo.humidity}%.`;
+                            speech.volume = 1;
+                            speech.pitch = 1;
+                            speech.rate = 1;
+                            window.speechSynthesis.speak(speech);
+                        });
+                } else {
+                    statusElement.textContent = 'Please enter a valid location.';
+                }
+            });
+
+            async function startAssistant() {
+                const speech = new SpeechSynthesisUtterance();
+                speech.text = 'Online. Activating Devil.';
+                speech.volume = 1;
+                speech.pitch = 1;
+                speech.rate = 1;
+
+                window.speechSynthesis.speak(speech);
+
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    const audioContext = new AudioContext();
+                    const source = audioContext.createMediaStreamSource(stream);
+                    const analyser = audioContext.createAnalyser();
+                    source.connect(analyser);
+                    analyser.fftSize = 256;
+
+                    const data = new Uint8Array(analyser.frequencyBinCount);
+
+                    analyser.addEventListener('audioprocess', async () => {
+                        analyser.getByteFrequencyData(data);
+
+                        if (model) {
+                            const prediction = model.predict(tf.tensor([data]));
+
+                            if (prediction[0] > 0.5) {
+                                startListening();
+                            }
+                        }
+                    });
+                } catch (error) {
+                    console.error('Error accessing microphone:', error);
+                }
+
+                // Load the TensorFlow.js model
+                try {
+                    model = await tf.loadLayersModel('model.json'); // Replace with your model URL
+                } catch (error) {
+                    console.error('Error loading TensorFlow.js model:', error);
+                    return; // Stop execution if model loading fails
+                }
+            }
+
+            function startListening() {
+                recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+                recognition.lang = 'en-US';
+
+                recognition.onresult = (event) => {
+                    const transcript = event.results[0][0].transcript;
+                    statusElement.textContent = `You said: ${transcript}`;
+                    handleVoiceCommand(transcript.toLowerCase());
+                };
+
+                recognition.onend = () => {
+                    listenBtn.textContent = 'Listen';
+                };
+
+                recognition.start();
+                listenBtn.textContent = 'Listening...';
+            }
+
+            function handleVoiceCommand(command) {
+                const speech = new SpeechSynthesisUtterance();
+
+                if (command.includes('hello') || command.includes('hey') || command.includes('hey what is your name ') || command.includes('hello what is your name ')) {
+                    speech.text = 'Hello sir! How can I assist you? My name is D.E.V.I.L , Devious Evolving Virtual Intelligence Lifeform I am created by Coolboy24_30 ';
+                } else if (command.includes('goodbye')) {
+                    speech.text = 'Goodbye! Have a great day.';
+                } else if (command.includes('what is') || command.includes('who is') || command.includes('what are')) {
+                    window.open(`https://www.google.com/search?q=${command.replace(" ", "+")}`, '_blank');
+                    speech.text = `This is what I found on the internet regarding ${command}`;
+                } else if (command.includes('wikipedia')) {
+                    window.open(`https://en.wikipedia.org/wiki/${command.replace("wikipedia", "")}`, '_blank');
+                    speech.text = `This is what I found on Wikipedia regarding ${command}`;
+                } else if (command.includes('time') || command.includes('time please')) {
+                    const time = new Date().toLocaleString(undefined, { hour: 'numeric', minute: 'numeric' });
+                    speech.text = `The current time is ${time}`;
+                } else if (command.includes('date') || command.includes('date please')) {
+                    const date = new Date().toLocaleString(undefined, { month: 'short', day: 'numeric' });
+                    speech.text = `The current date is ${date}`;
+                } else if (command.includes('calculator')) {
+                    window.open('Calculator:///');
+                    speech.text = 'Opening Calculator';
+                } else if (command.startsWith('open')) {
+                    const websiteName = command.substring(4).trim();
+                    openWebsite(websiteName);
+                    speech.text = `Opening ${websiteName}`;
+                } else if (command.startsWith('calculate')) {
+                    const expression = command.substring(10).trim();
+                    const result = calculateExpression(expression);
+                    speech.text = `Result: ${result}`;
+                } else if (command.toLowerCase() === 'weather please') {
+                    getWeatherInfo('Secunderabad') // Replace 'Secunderabad' with the desired location
+                        .then(weatherInfo => {
+                            displayWeather(weatherInfo);
+                            speech.volume = 1;
+                            speech.pitch = 1;
+                            speech.rate = 1;
+                            window.speechSynthesis.speak(speech);
+                            speech.text = `This is the weather Report ${weatherInfo}`;
+                        });
+                    return;
+                } else if (command.includes('open roblox')) {
+                    // Replace 'your-roblox-app-url' with the actual URL to open the Roblox app
+                    window.open('//', '_blank');
+                    speech.text = 'Opening Roblox app';
+                } else {
+                    window.open(`https://www.google.com/search?q=${command.replace(" ", "+")}`, '_blank');
+                    speech.text = `I found some information for ${command} on Google`;
+                }
+
+                speech.volume = 1;
+                speech.pitch = 1;
+                speech.rate = 1;
+
+                window.speechSynthesis.speak(speech);
+            }
+
+            function calculateExpression(expression) {
+                try {
+                    const result = eval(expression);
+                    return result.toString();
+                } catch (error) {
+                    return 'Error';
+                }
+            }
+
+            async function getWeatherInfo(location) {
+                const apiKey = '48ddfe8c9cf29f95b7d0e54d6e171008';
+                const response = await fetch(`http://api.openweathermap.org/data/2.5/weather?q=${location}&appid=${apiKey}`);
+                const data = await response.json();
+
+                const weatherDescription = data.weather[0].description;
+                const temperature = (data.main.temp - 273.15).toFixed(2); // Convert Kelvin to Celsius
+                const humidity = data.main.humidity;
+
+                const weatherInfo = {
+                    description: weatherDescription,
+                    temperature: temperature,
+                    humidity: humidity,
+                    location: location,
+                };
+
+                const speech = new SpeechSynthesisUtterance();
+                speech.text = `This is the weather report. Location: ${location}, Description: ${weatherDescription}, Temperature: ${temperature} degrees Celsius, Humidity: ${humidity}%.`;
+                speech.volume = 1;
+                speech.pitch = 1;
+                speech.rate = 1;
+
+                window.speechSynthesis.speak(speech);
+
+                return weatherInfo;
+            }
+function openWebsite(websiteName) {
+    const websites = {
+        'google': 'https://google.com',
+        'instagram': 'https://instagram.com',
+        'youtube': 'https://www.youtube.com',
+        'roblox': 'https://roblox.com',
+        'yahoo': 'https://yahoo.com',
+        'wikipedia': 'https://wikipedia.org',
+        'x': 'https://twitter.com',
+        'twitter': 'https://twitter.com',
+        'whatsapp': 'https://whatsapp.com',
+        'amazon': 'https://amazon.com',
+        'reddit': 'https://reddit.com',
+        'microsoft Outlook': 'https://live.com',
+        'linkedIn': 'https://linkedin.com',
+        'netflix': 'https://netflix.com',
+        'openAI': 'https://openai.com',
+        'office': 'https://office.com',
+        'Bing': 'https://bing.com',
+        'samsung': 'https://samsung.com',
+        'pinterest': 'https://pinterest.com',
+        'discord': 'https://discord.com',
+        'the Weather Channel': 'https://weather.com',
+        'microsoft': 'https://microsoft.com',
+        'max': 'https://max.com',
+        'twitch': 'https://twitch.tv',
+        'quora': 'https://quora.com',
+        'duckduckgo': 'https://duckduckgo.com',
+        'fandom': 'https://fandom.com',
+        'zoom': 'https://zoom.us',
+        'eBay': 'https://ebay.com',
+    };
+
+    if (websites[websiteName]) {
+        window.open(websites[websiteName], '_blank');
+    } else {
+        // Try to open the website from the text file
+        fetch('websites.txt')
+            .then(response => response.text())
+            .then(text => {
+                const lines = text.split('\n');
+                for (const line of lines) {
+                    const [name, url] = line.split(':');
+                    websites[name.trim().toLowerCase()] = url.trim();
+                }
+
+                if (websites[websiteName]) {
+                    window.open(websites[websiteName], '_blank');
+                } else {
+                    statusElement.textContent = `Website '${websiteName}' not recognized.`;
+                }
+            })
+            .catch(error => {
+                console.error('Error reading websites.txt:', error);
+                statusElement.textContent = 'Error reading websites.txt';
+            });
+    }
+}
+
+
+            function displayWeather(weatherInfo) {
+                const { description, temperature, humidity, location } = weatherInfo;
+
+                const iconImg = document.createElement('img');
+                iconImg.alt = 'Weather Icon';
+                iconImg.style.width = '50px'; // Set the width as needed
+                iconImg.style.height = '50px'; // Set the height as needed
+
+                const weatherImages = {
+                    'scattered clouds': '',
+                    'clear sky': '',
+                    'broken clouds': '',
+                    'haze': 'https://cdn-icons-png.flaticon.com/512/1197/1197102.png',
+                   'few clouds': 'https://cdn-icons-png.flaticon.com/512/6122/6122714.png',
+                };
+
+                iconImg.src = weatherImages[description.toLowerCase()] || 'default_image_url';
+
+                weatherInfoElement.innerHTML = `Location: ${location}, Description: ${description}, Temperature: ${temperature}°C, Humidity: ${humidity}%`;
+                weatherInfoElement.appendChild(iconImg);
+
+                weatherBox.style.display = 'block';
+            }
+        });
+    </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Your JavaScript code here
+
+            const madvais = {
+                greetings: ['hi', 'hello', 'hey'],
+                commands: {
+                    time: () => new Date().toLocaleTimeString(),
+                    date: () => new Date().toDateString(),
+                    default: () => 'I\'m sorry, I don\'t understand that .'
+                },
+                topics: {
+                    youtube: 'YouTube is a video-sharing platform where users can upload, view, and share videos.',
+                   google:'Google is a multinational technology company that specializes in internet-related services and products, including search, advertising, cloud computing, and software development.',
+                 facebook: 'Facebook is a social networking platform that allows users to connect with friends and family, share updates, and engage with content.',
+     apotato: 'Potato is God of vegetables',
+                    default: 'I don\'t have information about that topic.'
+                }
+            };
+
+            async function processInput() {
+                const userInput = document.getElementById('user-input').value.trim().toLowerCase();
+
+                displayMessage('You', userInput);
+
+                let response;
+                if (userInput.toLowerCase().includes('/weather')) {
+                    response ="The weather command is will only work once u turn on me and ask as i am not complete D.E.V.I.L.";
+                } else if (userInput.toLowerCase().includes('youtube')) {
+                    response = madvais.topics.youtube;
+ } else if (userInput.toLowerCase().includes('google')){
+                    response = madvais.topics.google;
+ } else if (userInput.toLowerCase().includes('weather')) {
+                    response = madvais.topics.weather;
+ } else if (userInput.toLowerCase().includes('facebook')) {
+                    response = madvais.topics.facebook;
+ } else if (userInput.toLowerCase().includes('potato ashwanth view')) {
+                    response = madvais.topics.apotato;
+                } else {
+                    response = madvais.commands.default();
+                }
+
+                displayMessage('D.E.V.I.L', response);
+                document.getElementById('user-input').value = '';
+            }
+
+            function displayMessage(sender, message) {
+                const messageElement = document.createElement('div');
+                messageElement.innerHTML = `<strong>${sender}:</strong> ${message}`;
+                document.getElementById('chat-box').appendChild(messageElement);
+                document.getElementById('chat-box').scrollTop = document.getElementById('chat-box').scrollHeight;
+            }
+
+
+            const sendButton = document.getElementById('send-button');
+            sendButton.addEventListener('click', processInput);
+        });
+    </script>
+
+</body>
+</html>
